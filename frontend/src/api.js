@@ -5,7 +5,7 @@
  * ('credentials: include') to support Spring Security session-based auth.
  */
 
-const API_BASE_URL = 'http://localhost:8080';
+const API_BASE_URL = 'http://localhost:8081';
 
 export async function apiFetch(endpoint, options = {}) {
   // Use relative path if proxied, or full URL to localhost:8080
