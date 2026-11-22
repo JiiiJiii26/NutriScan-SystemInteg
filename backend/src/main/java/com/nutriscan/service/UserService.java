@@ -1,7 +1,7 @@
 package com.nutriscan.service;
 
-import com.nutriscan.dto.RegisterRequest;
-import com.nutriscan.dto.UserResponse;
+import com.nutriscan.dto.*;
+import com.nutriscan.model.PasswordResetToken;
 import com.nutriscan.model.User;
 import com.nutriscan.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -15,16 +15,22 @@ import java.util.Optional;
  * - Local registration with BCrypt hashing
  * - Google OAuth find-or-create user handling
  * - User lookup and DTO conversion
+ * - Profile updates (Increment 2)
+ * - Password change and reset flows (Increment 2)
  */
 @Service
 public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PasswordResetService passwordResetService;
 
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserService(UserRepository userRepository,
+                       PasswordEncoder passwordEncoder,
+                       PasswordResetService passwordResetService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.passwordResetService = passwordResetService;
     }
 
     /**
@@ -99,6 +105,123 @@ public class UserService {
     }
 
     /**
+     * Update user profile (Full Name and optionally Email).
+     * Rejects email changes for Google OAuth accounts.
+     * Never modifies passwordHash, role, provider, or createdAt.
+     */
+    @Transactional
+    public User updateProfile(String currentEmail, UpdateProfileRequest request) {
+        User user = findByEmail(currentEmail)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        String newEmail = request.getEmail().trim().toLowerCase();
+        String newFullName = request.getFullName().trim();
+
+        // Check if provider is GOOGLE: Cannot change email
+        if ("GOOGLE".equalsIgnoreCase(user.getProvider())) {
+            if (!user.getEmail().equalsIgnoreCase(newEmail)) {
+                throw new IllegalArgumentException("Email cannot be changed for Google accounts");
+            }
+        } else {
+            // If local user is changing email, ensure new email is not already taken by another account
+            if (!user.getEmail().equalsIgnoreCase(newEmail)) {
+                if (userRepository.existsByEmail(newEmail)) {
+                    throw new IllegalArgumentException("Email is already registered");
+                }
+                user.setEmail(newEmail);
+            }
+        }
+
+        user.setFullName(newFullName);
+        return userRepository.save(user);
+    }
+
+    /**
+     * Authenticated change password.
+     * Validates current password, checks mismatch, hashes new password with BCrypt.
+     */
+    @Transactional
+    public void changePassword(String email, ChangePasswordRequest request) {
+        User user = findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        if ("GOOGLE".equalsIgnoreCase(user.getProvider()) || user.getPasswordHash() == null) {
+            throw new IllegalArgumentException("Password change is not available for Google accounts.");
+        }
+
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new IllegalArgumentException("New passwords do not match");
+        }
+
+        if (request.getNewPassword().length() < 8) {
+            throw new IllegalArgumentException("New password must be at least 8 characters long");
+        }
+
+        // Verify current password matches stored BCrypt hash
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new IllegalArgumentException("Current password is incorrect");
+        }
+
+        // Ensure new password is not the same as the current password
+        if (request.getNewPassword().equals(request.getCurrentPassword())) {
+            throw new IllegalArgumentException("New password cannot be the same as current password");
+        }
+
+        // Hash and persist new password
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+    }
+
+    /**
+     * Forgot password initiation.
+     * Creates reset token and logs link only if account is LOCAL and exists.
+     * Silently ignores Google accounts and non-existent accounts to prevent enumeration.
+     */
+    @Transactional
+    public void processForgotPassword(String email) {
+        if (email == null || email.isBlank()) {
+            return;
+        }
+
+        Optional<User> optionalUser = findByEmail(email);
+        if (optionalUser.isPresent()) {
+            User user = optionalUser.get();
+            if ("LOCAL".equalsIgnoreCase(user.getProvider())) {
+                passwordResetService.createResetToken(user);
+            }
+        }
+    }
+
+    /**
+     * Complete password reset using token.
+     * Hashes new password, updates user, marks token as used.
+     */
+    @Transactional
+    public void resetPassword(ResetPasswordRequest request) {
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new IllegalArgumentException("Passwords do not match");
+        }
+
+        if (request.getNewPassword().length() < 8) {
+            throw new IllegalArgumentException("New password must be at least 8 characters long");
+        }
+
+        PasswordResetToken resetToken = passwordResetService.validateToken(request.getToken());
+        User user = resetToken.getUser();
+
+        if ("GOOGLE".equalsIgnoreCase(user.getProvider())) {
+            throw new IllegalArgumentException("Password reset is not available for Google accounts");
+        }
+
+        // Update password with BCrypt
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        // Invalidate token
+        passwordResetService.consumeToken(resetToken);
+    }
+
+    /**
      * Convert User entity to safe UserResponse DTO.
      */
     public UserResponse toUserResponse(User user) {
@@ -107,7 +230,8 @@ public class UserService {
                 user.getFullName(),
                 user.getEmail(),
                 user.getRole(),
-                user.getProvider()
+                user.getProvider(),
+                user.getCreatedAt()
         );
     }
 }

@@ -28,3 +28,7 @@ frontend/*.local
 .env.*
 !.env.example
 application-local.properties
+
+.maven/
+*.cookies.txt
+

@@ -50,6 +50,11 @@ export function AuthProvider({ children }) {
     });
   };
 
+  // Immediate state update when user edits profile
+  const updateUser = (updatedUserData) => {
+    setUser((prev) => ({ ...prev, ...updatedUserData }));
+  };
+
   // Logout via POST /api/auth/logout
   const logout = async () => {
     try {
@@ -63,7 +68,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, checkAuth }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, checkAuth, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

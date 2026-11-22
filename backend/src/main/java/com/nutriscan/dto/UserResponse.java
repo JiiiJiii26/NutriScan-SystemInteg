@@ -1,7 +1,9 @@
 package com.nutriscan.dto;
 
+import java.time.LocalDateTime;
+
 /**
- * Data Transfer Object returned to frontend after registration, login, or /api/me check.
+ * Data Transfer Object returned to frontend after registration, login, profile fetch, or /api/me check.
  * Never includes sensitive information like password hashes.
  */
 public class UserResponse {
@@ -11,6 +13,7 @@ public class UserResponse {
     private String email;
     private String role;
     private String provider;
+    private LocalDateTime createdAt;
 
     public UserResponse() {
     }
@@ -21,6 +24,15 @@ public class UserResponse {
         this.email = email;
         this.role = role;
         this.provider = provider;
+    }
+
+    public UserResponse(Long id, String fullName, String email, String role, String provider, LocalDateTime createdAt) {
+        this.id = id;
+        this.fullName = fullName;
+        this.email = email;
+        this.role = role;
+        this.provider = provider;
+        this.createdAt = createdAt;
     }
 
     public Long getId() {
@@ -61,5 +73,13 @@ public class UserResponse {
 
     public void setProvider(String provider) {
         this.provider = provider;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
     }
 }

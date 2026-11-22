@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 /**
@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = async () => {
     await logout();
@@ -29,9 +30,21 @@ export default function Navbar() {
         <nav className="navbar-links" aria-label="Main Navigation">
           {user ? (
             <>
-              <Link to="/dashboard" className="nav-link active">Dashboard</Link>
+              <Link
+                to="/dashboard"
+                className={`nav-link ${location.pathname === '/dashboard' ? 'active' : ''}`}
+              >
+                Dashboard
+              </Link>
+
+              <Link
+                to="/profile"
+                className={`nav-link ${location.pathname === '/profile' ? 'active' : ''}`}
+              >
+                Profile
+              </Link>
               
-              {/* Disabled/greyed-out future navigation items as requested */}
+              {/* Disabled/greyed-out future navigation items */}
               <span className="nav-link disabled" title="Available in next increment">
                 Diary <span className="badge-coming-soon">Soon</span>
               </span>

@@ -1,8 +1,6 @@
 package com.nutriscan.controller;
 
-import com.nutriscan.dto.LoginRequest;
-import com.nutriscan.dto.RegisterRequest;
-import com.nutriscan.dto.UserResponse;
+import com.nutriscan.dto.*;
 import com.nutriscan.model.User;
 import com.nutriscan.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -34,6 +32,9 @@ import java.util.Map;
  * - Local email/password login with HTTP session
  * - Logout
  * - Current user session check (/api/me)
+ * - Authenticated change password (/api/auth/change-password)
+ * - Forgot password initiation (/api/auth/forgot-password)
+ * - Password reset completion (/api/auth/reset-password)
  */
 @RestController
 public class AuthController {
@@ -51,12 +52,25 @@ public class AuthController {
     }
 
     /**
+     * Helper to extract current authenticated user's email.
+     */
+    private String getAuthenticatedEmail(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {
+            return null;
+        }
+
+        if (authentication.getPrincipal() instanceof OAuth2User oauth2User) {
+            return oauth2User.getAttribute("email");
+        }
+        return authentication.getName();
+    }
+
+    /**
      * POST /api/auth/register
      * Register a new student account locally.
      */
     @PostMapping("/api/auth/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request, BindingResult bindingResult) {
-        // Handle validation errors from DTO annotations
         if (bindingResult.hasErrors()) {
             String firstError = bindingResult.getAllErrors().get(0).getDefaultMessage();
             return ResponseEntity.badRequest().body(Map.of("error", firstError));
@@ -143,26 +157,14 @@ public class AuthController {
     /**
      * GET /api/me
      * Returns details of the currently authenticated student.
-     * Enforced by Spring Security to require ROLE_STUDENT. Returns 401 if unauthenticated.
+     * Enforced by Spring Security to require authenticated student. Returns 401 if unauthenticated.
      */
     @GetMapping("/api/me")
     public ResponseEntity<?> getCurrentUser(Authentication authentication) {
-        if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Unauthorized: No active session found"));
-        }
-
-        // Determine user email based on authentication type (Local vs Google OAuth)
-        String email;
-        if (authentication.getPrincipal() instanceof OAuth2User oauth2User) {
-            email = oauth2User.getAttribute("email");
-        } else {
-            email = authentication.getName();
-        }
-
+        String email = getAuthenticatedEmail(authentication);
         if (email == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "No email associated with session"));
+                    .body(Map.of("error", "Unauthorized: No active session found"));
         }
 
         java.util.Optional<User> optionalUser = userService.findByEmail(email.trim().toLowerCase());
@@ -172,5 +174,80 @@ public class AuthController {
         }
 
         return ResponseEntity.ok(userService.toUserResponse(optionalUser.get()));
+    }
+
+    /**
+     * POST /api/auth/change-password
+     * Authenticated change password. Keeps user logged in after success.
+     */
+    @PostMapping("/api/auth/change-password")
+    public ResponseEntity<?> changePassword(@Valid @RequestBody ChangePasswordRequest request,
+                                           BindingResult bindingResult,
+                                           Authentication authentication) {
+        String email = getAuthenticatedEmail(authentication);
+        if (email == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Unauthorized: Please log in to change password"));
+        }
+
+        if (bindingResult.hasErrors()) {
+            String firstError = bindingResult.getAllErrors().get(0).getDefaultMessage();
+            return ResponseEntity.badRequest().body(Map.of("error", firstError));
+        }
+
+        try {
+            userService.changePassword(email, request);
+            return ResponseEntity.ok(Map.of("message", "Password changed successfully. Your new password will be required on next login."));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to change password. Please try again."));
+        }
+    }
+
+    /**
+     * POST /api/auth/forgot-password
+     * Public endpoint to request a password reset.
+     * Always returns generic 200 response to prevent email enumeration.
+     */
+    @PostMapping("/api/auth/forgot-password")
+    public ResponseEntity<?> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
+                                           BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            String firstError = bindingResult.getAllErrors().get(0).getDefaultMessage();
+            return ResponseEntity.badRequest().body(Map.of("error", firstError));
+        }
+
+        userService.processForgotPassword(request.getEmail());
+
+        return ResponseEntity.ok(Map.of(
+                "message", "If that email exists, a reset link has been sent."
+        ));
+    }
+
+    /**
+     * POST /api/auth/reset-password
+     * Public endpoint to reset password using token.
+     */
+    @PostMapping("/api/auth/reset-password")
+    public ResponseEntity<?> resetPassword(@Valid @RequestBody ResetPasswordRequest request,
+                                          BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            String firstError = bindingResult.getAllErrors().get(0).getDefaultMessage();
+            return ResponseEntity.badRequest().body(Map.of("error", firstError));
+        }
+
+        try {
+            userService.resetPassword(request);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Password reset successfully. You can now log in with your new password."
+            ));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to reset password. Please try again."));
+        }
     }
 }

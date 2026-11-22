@@ -26,7 +26,7 @@ export default function Login() {
     }
   }, [user, navigate]);
 
-  // Check for registration success query parameter
+  // Check for registration success or OAuth errors query parameters
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('registered') === 'true') {
@@ -39,8 +39,8 @@ export default function Login() {
 
   // Trigger Google OAuth 2.0 login
   const handleGoogleLogin = () => {
-    // Redirects browser to Spring Security OAuth2 authorization endpoint
-    window.location.href = 'http://localhost:8080/oauth2/authorization/google';
+    // Redirects browser to Spring Security OAuth2 authorization endpoint on port 8081
+    window.location.href = 'http://localhost:8081/oauth2/authorization/google';
   };
 
   // Handle local credentials login
@@ -136,7 +136,12 @@ export default function Login() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="login-password">Password</label>
+            <div className="label-with-link">
+              <label htmlFor="login-password">Password</label>
+              <Link to="/forgot-password" className="auth-sub-link">
+                Forgot Password?
+              </Link>
+            </div>
             <input
               id="login-password"
               type="password"
